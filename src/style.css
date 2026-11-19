@@ -1,0 +1,110 @@
+:root {
+  font-family: "Trebuchet MS", "Arial Rounded MT Bold", sans-serif;
+  color: #fff;
+  background: #242238;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ink: #242238;
+  --panel: rgba(40, 38, 62, 0.88);
+  --blue: #367bf0;
+  --gold: #ffc53d;
+}
+
+* { box-sizing: border-box; }
+html, body, #game-shell { width: 100%; height: 100%; min-width: 320px; min-height: 320px; margin: 0; overflow: hidden; }
+body { overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+button { font: inherit; }
+#game-shell { position: relative; isolation: isolate; background: #8bbcf3; }
+#game-view, #game-view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.hud-top { position: absolute; z-index: 2; top: 18px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+.meter-card, .stats-card, .weapon-tag { background: var(--panel); border: 1px solid rgba(255,255,255,.18); box-shadow: 0 8px 25px rgba(27,22,44,.22); backdrop-filter: blur(10px); }
+.meter-card { width: min(290px, 38vw); padding: 12px 14px 10px; border-radius: 17px; }
+.meter-label { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 12px; font-weight: 1000; letter-spacing: .06em; }
+.meter-label strong { font-size: 13px; }
+.meter-track { width: 100%; height: 11px; margin: 6px 0 9px; overflow: hidden; border-radius: 20px; background: rgba(10,10,22,.65); box-shadow: inset 0 2px 4px rgba(0,0,0,.4); }
+.meter-fill { height: 100%; width: 100%; border-radius: inherit; transition: width .16s ease; }
+.health-track .meter-fill { background: linear-gradient(90deg, #fa4665, #ff7883); box-shadow: 0 0 10px rgba(255,71,99,.4); }
+.fat-track { margin-bottom: 5px; }
+.fat-track .meter-fill { background: linear-gradient(90deg, #ffd447, #ff9c2e); box-shadow: 0 0 10px rgba(255,190,50,.35); }
+.fat-label { margin-top: 2px; }
+.body-state { display: inline-block; margin-top: 3px; padding: 2px 9px; border-radius: 20px; color: #fff; background: #4e4a6a; font-weight: 1000; font-size: 10px; letter-spacing: .06em; }
+.stats-card { display: flex; gap: 0; align-items: center; min-height: 65px; padding: 8px 10px; border-radius: 17px; }
+.stat { min-width: 65px; display: grid; grid-template-columns: 23px auto; grid-template-rows: 1fr 13px; align-items: center; column-gap: 4px; padding: 0 9px; }
+.stat-icon { grid-row: 1 / span 2; font-size: 19px; filter: drop-shadow(0 2px 1px rgba(0,0,0,.25)); }
+.stat strong { font-size: 17px; font-weight: 1000; line-height: 20px; }
+.stat small { font-size: 8px; font-weight: 1000; letter-spacing: .09em; opacity: .75; }
+.pause-button, .pause-touch { width: 40px; height: 42px; border: 1px solid rgba(255,255,255,.5); border-radius: 12px; color: #fff; background: linear-gradient(145deg, #9b9efc, #6979d9); box-shadow: 0 4px 0 #4b56a3, 0 6px 12px rgba(0,0,0,.22); cursor: pointer; font-size: 22px; font-weight: 1000; pointer-events: auto; }
+.pause-button:active, .pause-touch:active { transform: translateY(3px); box-shadow: 0 1px 0 #4b56a3; }
+.weapon-tag { position: absolute; z-index: 2; left: 22px; bottom: 23px; padding: 8px 13px; border-radius: 12px; font-weight: 1000; font-size: 11px; letter-spacing: .04em; }
+.weapon-icon { margin-right: 7px; color: #d8dcff; }
+.control-hint { position: absolute; z-index: 2; left: 50%; bottom: 23px; transform: translateX(-50%); padding: 8px 13px; border-radius: 12px; color: rgba(255,255,255,.92); background: rgba(40,38,62,.72); font-size: 10px; font-weight: 1000; letter-spacing: .08em; white-space: nowrap; }
+.pause-touch, .joystick { display: none; }
+.corner-brand { position: absolute; z-index: 1; right: 18px; bottom: 14px; color: rgba(255,255,255,.35); font: 1000 42px "Trebuchet MS", sans-serif; transform: rotate(-8deg); pointer-events: none; }
+.corner-brand span { color: #ffc53d; }
+
+.overlay { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(25, 24, 42, .44); backdrop-filter: blur(4px); opacity: 1; transition: opacity .18s ease; }
+.overlay.is-hidden { opacity: 0; pointer-events: none; }
+.overlay-card { width: min(450px, 92vw); padding: 26px 34px 22px; border: 1px solid rgba(255,255,255,.24); border-radius: 25px; text-align: center; background: linear-gradient(160deg, rgba(55,52,81,.97), rgba(35,34,56,.97)); box-shadow: 0 24px 65px rgba(16,14,32,.42); }
+.eyebrow { color: #ffcc48; font-size: 11px; font-weight: 1000; letter-spacing: .2em; }
+h1 { margin: 7px 0 8px; color: #fff; font: 1000 clamp(42px, 8vw, 67px)/.95 "Trebuchet MS", sans-serif; letter-spacing: -.045em; text-shadow: 0 4px 0 rgba(21,20,37,.6); transform: rotate(-2deg); }
+h1 span { color: #ffd13c; }
+#overlay[data-mode="paused"] h1, #overlay[data-mode="over"] h1 { font-size: clamp(37px, 7vw, 54px); }
+.overlay-card p { margin: 12px auto 17px; max-width: 330px; color: #d9d7e9; font-size: 14px; font-weight: 800; }
+.primary-action { min-width: 210px; padding: 13px 23px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(180deg, #80d42c, #4da91f); box-shadow: 0 5px 0 #31791c, 0 9px 18px rgba(69,177,32,.24); cursor: pointer; font-size: 17px; font-weight: 1000; text-shadow: 0 1px 1px rgba(0,0,0,.2); }
+.primary-action span { margin-left: 7px; font-size: 13px; }
+.primary-action:active { transform: translateY(3px); box-shadow: 0 2px 0 #31791c; }
+.quality-action { display: block; margin: 12px auto 0; padding: 7px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 9px; color: #d7d4e6; background: rgba(255,255,255,.07); cursor: pointer; font-size: 9px; font-weight: 1000; letter-spacing: .1em; }
+.quality-action[hidden] { display: none; }
+.quality-action:hover { color: #fff; background: rgba(255,255,255,.13); }
+.revive-action { display: block; margin: 13px auto 0; padding: 9px 14px; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; color: #332847; background: #ffcc43; cursor: pointer; font-size: 11px; font-weight: 1000; letter-spacing: .04em; }
+.revive-action[hidden] { display: none; }
+.revive-action:disabled { opacity: .65; cursor: wait; }
+.secondary-action-wrap { margin-top: 15px; }
+.secondary-action { padding: 8px 15px; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: #e4e2f2; background: rgba(255,255,255,.08); cursor: pointer; font-size: 11px; font-weight: 1000; letter-spacing: .08em; }
+.result-stats { margin: 13px 0 18px; color: #ffe08a; font-size: 12px; font-weight: 1000; line-height: 1.6; }
+.shop-list { display: grid; gap: 8px; margin: 14px 0 18px; text-align: left; }
+.shop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(255,255,255,.07); }
+.shop-info { display: grid; gap: 2px; }
+.shop-info strong { color: #fff; font-size: 12px; letter-spacing: .06em; }
+.shop-info small { color: #b8b5cb; font-size: 10px; font-weight: 700; }
+.shop-buy { min-width: 76px; padding: 8px 10px; border: 0; border-radius: 9px; color: #30253b; background: #ffca42; cursor: pointer; font-size: 10px; font-weight: 1000; }
+.shop-buy:disabled { color: #b5b2c2; background: #555268; cursor: default; }
+.overlay-tip { margin-top: 17px; color: #a9a7bc; font-size: 10px; font-weight: 800; }
+.portrait-warning { display: none; }
+
+@media (max-width: 700px) {
+  .hud-top { top: 10px; left: 10px; right: 10px; }
+  .meter-card { width: min(225px, 40vw); padding: 8px 10px; border-radius: 13px; }
+  .meter-label { font-size: 9px; }
+  .meter-label strong { font-size: 11px; }
+  .meter-track { height: 8px; margin: 4px 0 6px; }
+  .body-state { font-size: 8px; }
+  .stats-card { min-height: 52px; padding: 5px; border-radius: 13px; }
+  .stat { min-width: 48px; grid-template-columns: 16px auto; column-gap: 2px; padding: 0 4px; }
+  .stat-icon { font-size: 14px; }
+  .stat strong { font-size: 13px; }
+  .stat small { font-size: 7px; }
+  .pause-button { width: 33px; height: 35px; border-radius: 10px; font-size: 18px; }
+  .control-hint { display: none; }
+  .weapon-tag { left: auto; right: 10px; bottom: 13px; padding: 6px 9px; font-size: 9px; }
+  .pause-touch { display: block; position: absolute; z-index: 3; right: 14px; top: 76px; width: 36px; height: 38px; }
+  .joystick { display: block; position: absolute; z-index: 3; left: 22px; bottom: 18px; width: 118px; height: 118px; border: 1px solid rgba(255,255,255,.48); border-radius: 50%; background: rgba(45,43,65,.32); box-shadow: inset 0 0 0 9px rgba(255,255,255,.07), 0 6px 18px rgba(24,20,41,.16); touch-action: none; }
+  .joystick-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border: 1px solid rgba(255,255,255,.58); border-radius: 50%; background: linear-gradient(145deg, rgba(255,255,255,.92), rgba(196,203,255,.84)); box-shadow: 0 3px 10px rgba(25,20,40,.3); pointer-events: none; }
+  .joystick.is-active { background-color: rgba(65,79,151,.42); }
+  .corner-brand { display: none; }
+}
+
+@media (orientation: portrait) and (max-width: 800px) {
+  .portrait-warning { position: absolute; z-index: 8; inset: 0; display: grid; align-content: center; justify-content: center; gap: 7px; color: #fff; text-align: center; background: rgba(35,34,56,.94); font-size: 24px; font-weight: 1000; }
+  .portrait-warning span { color: #ffc53d; font-size: 10px; font-weight: 1000; letter-spacing: .12em; }
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .overlay-card { padding: 16px 28px 13px; }
+  h1 { margin: 3px 0 5px; font-size: 43px; }
+  .overlay-card p { margin: 6px auto 10px; font-size: 12px; }
+  .primary-action { padding: 9px 20px; }
+  .overlay-tip { margin-top: 10px; }
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#25233b" />
+    <meta name="description" content="Dodge angry fast food and fight your way to fitness." />
+    <title>Burger Buster — Food Fight!</title>
+  </head>
+  <body>
+    <main id="game-shell" aria-label="Burger Buster game">
+      <div id="game-view"></div>
+      <header class="hud-top">
+        <section class="meter-card" aria-label="Player condition">
+          <div class="meter-label"><span>♥ HEALTH</span><strong id="health-value">100</strong></div>
+          <div class="meter-track health-track"><div id="health-fill" class="meter-fill"></div></div>
+          <div class="meter-label fat-label"><span>🍔 FAT METER</span><strong id="fat-value">84%</strong></div>
+          <div class="meter-track fat-track"><div id="fat-fill" class="meter-fill"></div></div>
+          <div id="body-state" class="body-state">FAT</div>
+        </section>
+        <section class="stats-card" aria-label="Run stats">
+          <div class="stat"><span class="stat-icon">🪙</span><strong id="coin-value">0</strong><small>COINS</small></div>
+          <div class="stat"><span class="stat-icon">✦</span><strong id="kill-value">0</strong><small>KOs</small></div>
+          <div class="stat"><span class="stat-icon">⏱</span><strong id="time-value">00:00</strong><small>TIME</small></div>
+          <button id="pause-button" class="pause-button" aria-label="Pause game">Ⅱ</button>
+        </section>
+      </header>
+      <div class="weapon-tag"><span class="weapon-icon">▰</span> AUTO PISTOL</div>
+      <button id="pause-touch" class="pause-touch" aria-label="Pause game">Ⅱ</button>
+      <div id="joystick" class="joystick" aria-label="Movement joystick"><div class="joystick-knob"></div></div>
+      <div class="control-hint">WASD / ARROWS TO MOVE · AUTO AIM & FIRE</div>
+      <div class="portrait-warning">ROTATE YOUR DEVICE<br /><span>BURGER BUSTER IS BEST IN LANDSCAPE</span></div>
+
+      <section id="overlay" class="overlay" aria-live="polite">
+        <div class="overlay-card">
+          <div class="eyebrow">THE FOOD FIGHTS BACK</div>
+          <h1 id="overlay-title">BURGER<br /><span>BUSTER!</span></h1>
+          <p id="overlay-copy">Dodge the angry snacks. Take them down to get leaner!</p>
+          <div id="result-stats" class="result-stats" hidden></div>
+          <div id="shop-list" class="shop-list" hidden></div>
+          <button id="primary-action" class="primary-action">START RUN <span>▶</span></button>
+          <button id="quality-action" class="quality-action" type="button" aria-label="Change graphics quality">QUALITY: HIGH</button>
+          <button id="revive-action" class="revive-action" hidden>WATCH AD · REVIVE</button>
+          <div id="secondary-action-wrap" class="secondary-action-wrap" hidden>
+            <button id="secondary-action" class="secondary-action">MAIN MENU</button>
+          </div>
+          <div id="overlay-tip" class="overlay-tip">Move to dodge · Your pistol fires automatically</div>
+        </div>
+      </section>
+      <div class="corner-brand">BB<span>!</span></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
