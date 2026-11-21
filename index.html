@@ -25,10 +25,20 @@
           <button id="pause-button" class="pause-button" aria-label="Pause game">Ⅱ</button>
         </section>
       </header>
-      <div class="weapon-tag"><span class="weapon-icon">▰</span> AUTO PISTOL</div>
+      <section id="district-badge" class="district-badge" aria-live="polite">
+        <span id="district-kicker" class="district-kicker">DISTRICT 1 / 4</span>
+        <strong id="district-name">DINER DISTRICT</strong>
+      </section>
+      <section id="boss-meter" class="boss-meter" aria-live="polite" hidden>
+        <div class="boss-label"><span id="boss-name">BOSS</span><strong id="boss-health-value">100%</strong></div>
+        <div class="boss-track"><div id="boss-health-fill"></div></div>
+      </section>
       <button id="pause-touch" class="pause-touch" aria-label="Pause game">Ⅱ</button>
       <div id="joystick" class="joystick" aria-label="Movement joystick"><div class="joystick-knob"></div></div>
-      <div class="control-hint">WASD / ARROWS TO MOVE · AUTO AIM & FIRE</div>
+      <aside id="controls-tip" class="controls-tip" aria-live="polite" hidden>
+        <span class="controls-tip-icon">✦</span>
+        <span class="controls-tip-copy"><strong>MOVE TO DODGE</strong><small>WASD · ARROWS · CLICK · STICK</small></span>
+      </aside>
       <div class="portrait-warning">ROTATE YOUR DEVICE<br /><span>BURGER BUSTER IS BEST IN LANDSCAPE</span></div>
 
       <section id="overlay" class="overlay" aria-live="polite">

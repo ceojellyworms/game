@@ -1,7 +1,9 @@
 import { maxUpgradeLevel, upgradeCost } from "../game/SaveSystem";
 import type { SaveData, UpgradeId } from "../game/SaveSystem";
+import type { DistrictConfig } from "../game/Districts";
 
 export type RunSummary = { time: number; kills: number; coins: number; bestTime: number };
+export type ResultDetails = { title: string; copy: string; tip: string };
 type HudCallbacks = { start: () => void; resume: () => void; restart: () => void; menu: () => void; pause: () => void; shop: () => void; buyUpgrade: (id: UpgradeId) => void; revive: () => void; quality: () => void };
 
 function required<T extends HTMLElement>(selector: string): T {
@@ -22,6 +24,13 @@ export class Hud {
   private readonly shopList = required<HTMLElement>("#shop-list");
   private readonly reviveButton = required<HTMLButtonElement>("#revive-action");
   private readonly qualityButton = required<HTMLButtonElement>("#quality-action");
+  private readonly districtKicker = required<HTMLElement>("#district-kicker");
+  private readonly districtName = required<HTMLElement>("#district-name");
+  private readonly bossMeter = required<HTMLElement>("#boss-meter");
+  private readonly bossName = required<HTMLElement>("#boss-name");
+  private readonly bossHealthValue = required<HTMLElement>("#boss-health-value");
+  private readonly bossHealthFill = required<HTMLElement>("#boss-health-fill");
+  private readonly controlsTip = required<HTMLElement>("#controls-tip");
   private readonly joystick = required<HTMLElement>("#joystick");
   private readonly joystickKnob = required<HTMLElement>(".joystick-knob");
   private readonly healthFill = required<HTMLElement>("#health-fill");
@@ -71,19 +80,21 @@ export class Hud {
     this.timeValue.textContent = this.formatTime(stats.time);
   }
 
-  showMenu(bankCoins: number) {
+  showMenu(save: SaveData, district: DistrictConfig, gateText: string) {
     this.showOverlay("menu");
     this.qualityButton.hidden = false;
+    this.setDistrict(district);
     this.title.innerHTML = "BURGER<br /><span>BUSTER!</span>";
-    this.copy.textContent = "Dodge the angry snacks. Take them down to get leaner!";
+    this.copy.textContent = `${district.tagline} · Defeat the boss and earn your way to the next district.`;
     this.primary.innerHTML = 'START RUN <span>▶</span>';
     this.secondary.innerHTML = "UPGRADES";
     this.secondaryWrap.hidden = false;
     this.result.hidden = false;
-    this.result.textContent = `BANK: ${bankCoins} COINS`;
+    this.result.textContent = `BANK: ${save.totalCoins} COINS · DISTRICT ${district.id + 1} / 4`;
     this.shopList.hidden = true;
     this.reviveButton.hidden = true;
-    this.tip.textContent = "Move to dodge · Your pistol fires automatically";
+    this.tip.textContent = save.campaignComplete ? "CAMPAIGN CLEARED · REPLAY THE FINAL DISTRICT" : `NEXT EXIT REQUIRES ${gateText}`;
+    this.setBossHealth("", 0, 0);
   }
 
   showPaused() {
@@ -100,19 +111,19 @@ export class Hud {
     this.tip.textContent = "Press ESC or P to resume";
   }
 
-  showResult(summary: RunSummary, canRevive = false) {
+  showResult(summary: RunSummary, canRevive = false, details?: ResultDetails) {
     this.showOverlay("over");
     this.qualityButton.hidden = true;
-    this.title.textContent = "RUN OVER!";
-    this.copy.textContent = "The snack attack got you. Gear up and go again!";
-    this.primary.innerHTML = 'RUN IT BACK <span>▶</span>';
+    this.title.textContent = details?.title ?? "RUN OVER!";
+    this.copy.textContent = details?.copy ?? "The snack attack got you. Gear up and go again!";
+    this.primary.innerHTML = details?.title === "DISTRICT CLEARED!" ? 'ENTER NEXT DISTRICT <span>▶</span>' : 'RUN IT BACK <span>▶</span>';
     this.secondary.innerHTML = "UPGRADES";
     this.secondaryWrap.hidden = false;
     this.result.hidden = false;
     this.shopList.hidden = true;
     this.reviveButton.hidden = !canRevive;
     this.result.textContent = `SURVIVED ${this.formatTime(summary.time)}   ·   ${summary.kills} KOs   ·   ${summary.coins} COINS`;
-    this.tip.textContent = `BEST RUN ${this.formatTime(summary.bestTime)}`;
+    this.tip.textContent = details?.tip ?? `BEST RUN ${this.formatTime(summary.bestTime)}`;
   }
 
   setAdLoading(loading: boolean) {
@@ -127,11 +138,11 @@ export class Hud {
     this.qualityButton.setAttribute("aria-label", `Graphics quality ${quality}. Click to change.`);
   }
 
-  showShop(save: SaveData) {
+  showShop(save: SaveData, districtName: string, gateText: string) {
     this.showOverlay("shop");
     this.qualityButton.hidden = true;
     this.title.textContent = "UPGRADES";
-    this.copy.textContent = `BANK: ${save.totalCoins} COINS · Permanent boosts for every run.`;
+    this.copy.textContent = `BANK: ${save.totalCoins} COINS · ${districtName} · Permanent boosts for every run.`;
     this.primary.innerHTML = 'BACK TO MENU <span>↩</span>';
     this.secondaryWrap.hidden = true;
     this.result.hidden = true;
@@ -163,7 +174,37 @@ export class Hud {
       row.append(info, button);
       this.shopList.append(row);
     }
-    this.tip.textContent = "Bought upgrades are saved on this device";
+    this.tip.textContent = save.campaignComplete ? "CAMPAIGN CLEARED · ALL FOUR DISTRICTS CONQUERED" : `NEXT EXIT: ${gateText}`;
+  }
+
+  setDistrict(district: DistrictConfig) {
+    this.districtKicker.textContent = `DISTRICT ${district.id + 1} / 4`;
+    this.districtName.textContent = district.name.toUpperCase();
+    this.districtName.style.color = `#${district.accent.toString(16).padStart(6, "0")}`;
+  }
+
+  setBossHealth(name: string, current: number, maximum: number) {
+    const visible = Boolean(name) && maximum > 0;
+    this.bossMeter.hidden = !visible;
+    if (!visible) return;
+    const percent = Math.max(0, Math.min(100, (current / maximum) * 100));
+    this.bossName.textContent = name;
+    this.bossHealthValue.textContent = `${Math.ceil(percent)}%`;
+    this.bossHealthFill.style.width = `${percent}%`;
+  }
+
+  showControlsTip() {
+    this.controlsTip.hidden = false;
+    this.controlsTip.classList.remove("is-fading");
+    this.controlsTip.classList.add("is-visible");
+  }
+
+  updateControlsTip(secondsLeft: number) {
+    if (secondsLeft <= 3) this.controlsTip.classList.add("is-fading");
+    if (secondsLeft <= 0) {
+      this.controlsTip.hidden = true;
+      this.controlsTip.classList.remove("is-visible", "is-fading");
+    }
   }
 
   hideOverlay() {

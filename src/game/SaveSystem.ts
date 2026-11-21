@@ -1,21 +1,23 @@
 export type UpgradeId = "damageLevel" | "reloadLevel" | "moveSpeedLevel";
 
 export type SaveData = {
-  version: 1;
+  version: 2;
   totalCoins: number;
   bestTime: number;
   upgrades: Record<UpgradeId, number>;
+  unlockedDistrict: number;
+  campaignComplete: boolean;
 };
 
 const SAVE_KEY = "burger-buster-save";
 const MAX_LEVEL = 5;
 
 export function defaultSave(): SaveData {
-  return { version: 1, totalCoins: 0, bestTime: 0, upgrades: { damageLevel: 0, reloadLevel: 0, moveSpeedLevel: 0 } };
+  return { version: 2, totalCoins: 0, bestTime: 0, upgrades: { damageLevel: 0, reloadLevel: 0, moveSpeedLevel: 0 }, unlockedDistrict: 0, campaignComplete: false };
 }
 
 export function upgradeCost(level: number) {
-  return 25 + level * 25;
+  return 20 + level * 20;
 }
 
 export function loadSave(): SaveData {
@@ -33,14 +35,16 @@ export function loadSave(): SaveData {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return defaultSave();
     const storedVersion = (parsed as { version?: unknown }).version;
-    if (typeof storedVersion === "number" && storedVersion !== 0 && storedVersion !== 1) return defaultSave();
+    if (typeof storedVersion === "number" && (storedVersion < 0 || storedVersion > 2)) return defaultSave();
     const data = parsed as Partial<SaveData>;
     const levels = data.upgrades ?? defaultSave().upgrades;
     const safeLevel = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(MAX_LEVEL, Math.floor(value))) : 0;
     return {
-      version: 1,
+      version: 2,
       totalCoins: typeof data.totalCoins === "number" && Number.isFinite(data.totalCoins) ? Math.max(0, Math.floor(data.totalCoins)) : 0,
       bestTime: typeof data.bestTime === "number" && Number.isFinite(data.bestTime) ? Math.max(0, data.bestTime) : 0,
+      unlockedDistrict: typeof data.unlockedDistrict === "number" && Number.isFinite(data.unlockedDistrict) ? Math.max(0, Math.min(3, Math.floor(data.unlockedDistrict))) : 0,
+      campaignComplete: data.campaignComplete === true,
       upgrades: {
         damageLevel: safeLevel(levels.damageLevel),
         reloadLevel: safeLevel(levels.reloadLevel),

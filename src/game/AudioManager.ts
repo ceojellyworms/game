@@ -1,4 +1,4 @@
-export type SoundName = "fire" | "hit" | "kill" | "coin" | "death";
+export type SoundName = "fire" | "hit" | "kill" | "coin" | "death" | "boss" | "victory";
 
 const SOUNDS: Record<SoundName, { from: number; to: number; duration: number; wave: OscillatorType }> = {
   fire: { from: 520, to: 300, duration: 0.055, wave: "square" },
@@ -6,6 +6,8 @@ const SOUNDS: Record<SoundName, { from: number; to: number; duration: number; wa
   kill: { from: 520, to: 960, duration: 0.12, wave: "triangle" },
   coin: { from: 780, to: 1260, duration: 0.1, wave: "sine" },
   death: { from: 270, to: 70, duration: 0.42, wave: "triangle" },
+  boss: { from: 110, to: 420, duration: 0.55, wave: "sawtooth" },
+  victory: { from: 490, to: 1440, duration: 0.52, wave: "triangle" },
 };
 
 export class AudioManager {

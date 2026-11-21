@@ -7,18 +7,21 @@ import { AudioManager } from "./AudioManager";
 import { CrazyGamesAdapter } from "../platform/CrazyGamesAdapter";
 import type { SaveData, UpgradeId } from "./SaveSystem";
 import { Hud } from "../ui/Hud";
+import type { ResultDetails } from "../ui/Hud";
 import { loadQuality, nextQuality, pixelRatioFor, saveQuality } from "./QualitySettings";
 import type { QualityPreset } from "./QualitySettings";
+import { DISTRICTS, formatGateProgress, gateRequirementsMet, getDistrict } from "./Districts";
 
 type GameMode = "menu" | "playing" | "paused" | "over" | "shop";
-type Enemy = { model: EnemyModel; kind: EnemyKind; hp: number; active: boolean; wobble: number };
+type Enemy = { model: EnemyModel; kind: EnemyKind; hp: number; maxHp: number; active: boolean; wobble: number; isBoss: boolean; bossDistrict: number };
 type Projectile = { mesh: THREE.Mesh; velocity: THREE.Vector3; damage: number; life: number; active: boolean };
 type CoinPickup = { root: THREE.Group; age: number; value: number };
 
 const ENEMY_STATS: Record<EnemyKind, { hp: number; speed: number; damage: number; fat: number; coins: number; unlock: number; weight: number }> = {
-  donut: { hp: 3, speed: 1.18, damage: 18, fat: 6, coins: 1, unlock: 0, weight: 0.62 },
-  hotdog: { hp: 4.5, speed: 1.62, damage: 14, fat: 7, coins: 2, unlock: 20, weight: 0.28 },
-  burger: { hp: 8, speed: 0.92, damage: 26, fat: 12, coins: 3, unlock: 45, weight: 0.1 },
+  donut: { hp: 3, speed: 1.18, damage: 18, fat: 6, coins: 2, unlock: 0, weight: 0.62 },
+  hotdog: { hp: 4.5, speed: 1.62, damage: 14, fat: 7, coins: 4, unlock: 20, weight: 0.28 },
+  burger: { hp: 8, speed: 0.92, damage: 26, fat: 12, coins: 7, unlock: 45, weight: 0.1 },
+  boss: { hp: 1, speed: 0.72, damage: 29, fat: 15, coins: 35, unlock: Number.POSITIVE_INFINITY, weight: 0 },
 };
 
 export class Game {
@@ -41,7 +44,12 @@ export class Game {
   private readonly coins: CoinPickup[] = [];
   private readonly coinPool: CoinPickup[] = [];
   private readonly save: SaveData = loadSave();
+  private arena: Arena;
   private mode: GameMode = "menu";
+  private districtIndex = this.save.unlockedDistrict;
+  private districtElapsed = 0;
+  private bossSpawned = false;
+  private controlsTipRemaining = 0;
   private quality: QualityPreset = loadQuality();
   private mouseTargetActive = false;
   private fat = 84;
@@ -72,13 +80,14 @@ export class Game {
     this.renderer.shadowMap.enabled = false;
     container.appendChild(this.renderer.domElement);
 
-    this.scene.background = new THREE.Color(0x8bbcf3);
-    this.scene.fog = new THREE.Fog(0x8bbcf3, 31, 58);
+    const initialDistrict = getDistrict(this.districtIndex);
+    this.scene.background = new THREE.Color(initialDistrict.sky);
+    this.scene.fog = new THREE.Fog(initialDistrict.sky, 31, 58);
     this.scene.add(new THREE.HemisphereLight(0xe7f4ff, 0x4b4658, 2.1));
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.2);
     sun.position.set(-7, 16, 9);
     this.scene.add(sun);
-    new Arena(this.scene);
+    this.arena = new Arena(this.scene, initialDistrict);
     this.scene.add(this.player.root);
     this.hud = new Hud({
       start: () => this.startRun(),
@@ -92,7 +101,8 @@ export class Game {
       quality: () => this.cycleQuality(),
     });
     this.hud.setQuality(this.quality);
-    this.hud.showMenu(this.save.totalCoins);
+    this.hud.setDistrict(initialDistrict);
+    this.hud.showMenu(this.save, initialDistrict, formatGateProgress(this.save, this.districtIndex));
     this.hud.render({ health: this.health, fat: this.fat, body: getBodyLabel(getBodyState(this.fat)), coins: 0, kills: 0, time: 0 });
     this.bindInput();
     window.addEventListener("resize", this.resize);
@@ -123,16 +133,29 @@ export class Game {
 
   private update(dt: number) {
     this.elapsed += dt;
+    this.districtElapsed += dt;
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     this.spawnTimer -= dt;
     this.fireTimer -= dt;
     this.hudTimer -= dt;
+    if (this.controlsTipRemaining > 0) {
+      this.controlsTipRemaining = Math.max(0, this.controlsTipRemaining - dt);
+      this.hud.updateControlsTip(this.controlsTipRemaining);
+    }
     this.movePlayer(dt);
     if (this.spawnTimer <= 0) {
-      const cap = Math.min(14, 5 + Math.floor(this.elapsed / 14));
-      if (this.enemies.length < cap) this.spawnEnemy();
-      this.spawnTimer = Math.max(1.05, 2.8 - this.elapsed * 0.022);
+      let regularEnemies = 0;
+      let bossIsAlive = false;
+      for (const enemy of this.enemies) {
+        if (enemy.isBoss) bossIsAlive = true;
+        else regularEnemies += 1;
+      }
+      const cap = Math.min(15, 5 + this.districtIndex + Math.floor(this.districtElapsed / 12));
+      if (regularEnemies < cap) this.spawnEnemy();
+      this.spawnTimer = Math.max(bossIsAlive ? 2.05 : 0.95, 2.8 - this.districtElapsed * 0.014);
     }
+    const district = getDistrict(this.districtIndex);
+    if (!this.bossSpawned && this.districtElapsed >= district.bossAfter) this.spawnBoss();
     this.updateEnemies(dt);
     this.autoFire();
     this.updateProjectiles(dt);
@@ -174,6 +197,7 @@ export class Game {
     this.player.root.position.x = THREE.MathUtils.clamp(this.player.root.position.x + x * speed * dt, -12.1, 12.1);
     this.player.root.position.z = THREE.MathUtils.clamp(this.player.root.position.z + z * speed * dt, -12.1, 12.1);
     if (length > 0.08) this.player.face(x, z);
+    this.player.animateWalk(dt, length > 0.08);
     this.player.setFat(this.fat);
   }
 
@@ -183,11 +207,14 @@ export class Game {
     const x = THREE.MathUtils.clamp(this.player.root.position.x + Math.cos(angle) * radius, -12, 12);
     const z = THREE.MathUtils.clamp(this.player.root.position.z + Math.sin(angle) * radius, -12, 12);
     const kind = this.chooseEnemyKind();
-    const poolIndex = this.enemyPool.findIndex((candidate) => candidate.kind === kind);
+    const poolIndex = this.enemyPool.findIndex((candidate) => candidate.kind === kind && candidate.bossDistrict === -1);
     const enemy = poolIndex >= 0 ? this.enemyPool.splice(poolIndex, 1)[0] : this.createEnemy(kind);
     enemy.kind = kind;
+    enemy.isBoss = false;
+    enemy.bossDistrict = -1;
     enemy.active = true;
-    enemy.hp = ENEMY_STATS[kind].hp;
+    enemy.maxHp = ENEMY_STATS[kind].hp * getDistrict(this.districtIndex).enemyHealth;
+    enemy.hp = enemy.maxHp;
     enemy.wobble = Math.random() * Math.PI * 2;
     enemy.model.root.visible = true;
     enemy.model.root.position.set(x, 0, z);
@@ -195,7 +222,7 @@ export class Game {
   }
 
   private chooseEnemyKind(): EnemyKind {
-    const available = (Object.keys(ENEMY_STATS) as EnemyKind[]).filter((kind) => this.elapsed >= ENEMY_STATS[kind].unlock);
+    const available = (Object.keys(ENEMY_STATS) as EnemyKind[]).filter((kind) => kind !== "boss" && this.districtElapsed >= ENEMY_STATS[kind].unlock);
     const totalWeight = available.reduce((sum, kind) => sum + ENEMY_STATS[kind].weight, 0);
     let choice = Math.random() * totalWeight;
     for (const kind of available) {
@@ -206,16 +233,42 @@ export class Game {
   }
 
   private createEnemy(kind: EnemyKind): Enemy {
-    const model = createEnemyModel(kind);
+    const district = getDistrict(this.districtIndex);
+    const model = createEnemyModel(kind, district.bossStyle);
     this.scene.add(model.root);
     model.root.visible = false;
-    return { model, kind, hp: ENEMY_STATS[kind].hp, active: false, wobble: 0 };
+    return { model, kind, hp: ENEMY_STATS[kind].hp, maxHp: ENEMY_STATS[kind].hp, active: false, wobble: 0, isBoss: kind === "boss", bossDistrict: kind === "boss" ? this.districtIndex : -1 };
+  }
+
+  private spawnBoss() {
+    const district = getDistrict(this.districtIndex);
+    const poolIndex = this.enemyPool.findIndex((candidate) => candidate.isBoss && candidate.bossDistrict === this.districtIndex);
+    const boss = poolIndex >= 0 ? this.enemyPool.splice(poolIndex, 1)[0] : this.createEnemy("boss");
+    boss.kind = "boss";
+    boss.isBoss = true;
+    boss.bossDistrict = this.districtIndex;
+    boss.active = true;
+    boss.maxHp = district.bossHealth;
+    boss.hp = boss.maxHp;
+    boss.wobble = 0;
+    boss.model.root.visible = true;
+    const angle = Math.random() * Math.PI * 2;
+    boss.model.root.position.set(
+      THREE.MathUtils.clamp(this.player.root.position.x + Math.cos(angle) * 9.5, -11, 11),
+      0,
+      THREE.MathUtils.clamp(this.player.root.position.z + Math.sin(angle) * 9.5, -11, 11),
+    );
+    this.enemies.push(boss);
+    this.bossSpawned = true;
+    this.audio.play("boss");
+    this.hud.setBossHealth(district.bossName, boss.hp, boss.maxHp);
   }
 
   private updateEnemies(dt: number) {
     const playerPosition = this.player.root.position;
+    const district = getDistrict(this.districtIndex);
     for (const enemy of this.enemies) {
-      const pace = ENEMY_STATS[enemy.kind].speed + Math.min(this.elapsed * 0.01, 0.72);
+      const pace = ENEMY_STATS[enemy.kind].speed * district.enemySpeed + Math.min(this.districtElapsed * 0.008, 0.78);
       const position = enemy.model.root.position;
       const dx = playerPosition.x - position.x;
       const dz = playerPosition.z - position.z;
@@ -223,11 +276,11 @@ export class Game {
       position.x += (dx / distance) * pace * dt;
       position.z += (dz / distance) * pace * dt;
       enemy.wobble += dt * 5;
-      enemy.model.root.position.y = Math.abs(Math.sin(enemy.wobble)) * 0.11;
+      enemy.model.root.position.y = Math.abs(Math.sin(enemy.wobble)) * (enemy.isBoss ? 0.2 : 0.11);
       enemy.model.root.rotation.y = Math.atan2(dx, dz) + Math.sin(enemy.wobble * 0.6) * 0.07;
-      if (distance < 0.96 && this.hurtTimer <= 0) {
+      if (distance < (enemy.isBoss ? 1.55 : 0.96) && this.hurtTimer <= 0) {
         this.fat = Math.min(100, this.fat + ENEMY_STATS[enemy.kind].fat);
-        this.health = Math.max(0, this.health - ENEMY_STATS[enemy.kind].damage);
+        this.health = Math.max(0, this.health - ENEMY_STATS[enemy.kind].damage * district.enemyDamage);
         this.audio.play("hit");
         this.hurtTimer = 1.05;
         position.x -= (dx / distance) * 0.72;
@@ -248,7 +301,8 @@ export class Game {
     if (!target) return;
     this.player.face(target.model.root.position.x - playerPosition.x, target.model.root.position.z - playerPosition.z);
     const origin = playerPosition.clone().add(new THREE.Vector3(0, 1.08, 0));
-    const aim = target.model.root.position.clone().add(new THREE.Vector3(0, 0.86, 0)).sub(origin).normalize();
+    const targetHeight = target.isBoss ? 1.35 : 0.86;
+    const aim = target.model.root.position.clone().add(new THREE.Vector3(0, targetHeight, 0)).sub(origin).normalize();
     const projectile = this.projectilePool.pop() ?? this.createProjectile();
     projectile.active = true;
     projectile.life = 1.2;
@@ -274,9 +328,14 @@ export class Game {
       projectile.mesh.position.addScaledVector(projectile.velocity, dt);
       let hit = false;
       for (const enemy of this.enemies) {
-        if (projectile.mesh.position.distanceTo(enemy.model.root.position.clone().add(new THREE.Vector3(0, 0.86, 0))) < 0.7) {
+        const target = enemy.model.root.position;
+        const dx = projectile.mesh.position.x - target.x;
+        const dy = projectile.mesh.position.y - (target.y + (enemy.isBoss ? 1.35 : 0.86));
+        const dz = projectile.mesh.position.z - target.z;
+        if (Math.hypot(dx, dy, dz) < (enemy.isBoss ? 1.32 : 0.7)) {
           enemy.hp -= projectile.damage;
           hit = true;
+          if (enemy.isBoss) this.hud.setBossHealth(getDistrict(this.districtIndex).bossName, enemy.hp, enemy.maxHp);
           if (enemy.hp <= 0) this.killEnemy(enemy);
           break;
         }
@@ -286,6 +345,7 @@ export class Game {
         projectile.mesh.visible = false;
         this.projectilePool.push(projectile);
       }
+      if (this.mode !== "playing") break;
     }
     for (let i = this.projectiles.length - 1; i >= 0; i--) if (!this.projectiles[i].active) this.projectiles.splice(i, 1);
   }
@@ -296,11 +356,17 @@ export class Game {
     this.enemies.splice(this.enemies.indexOf(enemy), 1);
     this.enemyPool.push(enemy);
     this.kills += 1;
-    this.fat = Math.max(0, this.fat - 4);
+    this.fat = Math.max(0, this.fat - (enemy.isBoss ? 12 : 4));
     this.audio.play("kill");
+    if (enemy.isBoss) {
+      this.runCoins += Math.ceil(ENEMY_STATS.boss.coins * (1 + this.districtIndex * 0.25));
+      this.audio.play("coin");
+      this.completeBoss();
+      return;
+    }
     const coin = this.coinPool.pop() ?? { root: makeCoin(), age: 0, value: 0 };
     coin.age = 0;
-    coin.value = ENEMY_STATS[enemy.kind].coins;
+    coin.value = Math.ceil(ENEMY_STATS[enemy.kind].coins * (1 + this.districtIndex * 0.25));
     coin.root.visible = true;
     coin.root.position.copy(enemy.model.root.position);
     coin.root.position.y = 0.36;
@@ -369,6 +435,8 @@ export class Game {
 
   private startRun() {
     if (this.adInProgress) return;
+    this.districtIndex = this.save.unlockedDistrict;
+    if (getDistrict(this.districtIndex).id !== this.districtIndex) this.setDistrict(this.districtIndex);
     this.settleRun();
     this.audio.unlock();
     this.clearActors();
@@ -384,9 +452,14 @@ export class Game {
     this.reviveUsed = false;
     this.runSettled = false;
     this.elapsed = 0;
+    this.districtElapsed = 0;
+    this.bossSpawned = false;
+    this.controlsTipRemaining = 10;
     this.spawnTimer = 0.9;
     this.fireTimer = 0.25;
     this.hurtTimer = 0;
+    this.hud.setBossHealth("", 0, 0);
+    this.hud.showControlsTip();
     this.hud.render({ health: this.health, fat: this.fat, body: getBodyLabel(getBodyState(this.fat)), coins: 0, kills: 0, time: 0 });
     this.hud.hideOverlay();
     this.platform.gameplayStart();
@@ -433,12 +506,18 @@ export class Game {
     this.save.bestTime = this.bestTime;
     this.settleRun();
     persistSave(this.save);
+    this.hud.setBossHealth("", 0, 0);
     this.hud.render({ health: this.health, fat: this.fat, body: getBodyLabel(getBodyState(this.fat)), coins: this.runCoins, kills: this.kills, time: this.elapsed });
     this.deathsSinceMidgameAd += 1;
     const adAvailable = this.platform.isRewardedAdAvailable();
     const forcedMidgame = adAvailable && this.deathsSinceMidgameAd % 2 === 0;
     const canRevive = !forcedMidgame && !this.reviveUsed && adAvailable;
-    this.hud.showResult({ time: this.elapsed, kills: this.kills, coins: this.runCoins, bestTime: this.bestTime }, canRevive);
+    const details: ResultDetails = {
+      title: "RUN OVER!",
+      copy: `You banked ${this.save.totalCoins} coins. Upgrade and take another shot at the ${getDistrict(this.districtIndex).bossName}.`,
+      tip: `NEXT EXIT: ${formatGateProgress(this.save, this.districtIndex)}`,
+    };
+    this.hud.showResult({ time: this.elapsed, kills: this.kills, coins: this.runCoins, bestTime: this.bestTime }, canRevive, details);
     if (forcedMidgame) {
       this.adInProgress = true;
       this.hud.setAdLoading(true);
@@ -454,14 +533,71 @@ export class Game {
     this.settleRun();
     this.clearActors();
     this.mode = "menu";
-    this.hud.showMenu(this.save.totalCoins);
+    const district = getDistrict(this.save.unlockedDistrict);
+    this.hud.showMenu(this.save, district, formatGateProgress(this.save, district.id));
   }
 
   private openShop() {
     if (this.adInProgress) return;
     this.settleRun();
     this.mode = "shop";
-    this.hud.showShop(this.save);
+    const district = getDistrict(this.districtIndex);
+    this.hud.showShop(this.save, district.name, formatGateProgress(this.save, district.id));
+  }
+
+  private completeBoss() {
+    if (this.mode !== "playing") return;
+    const clearedDistrict = this.districtIndex;
+    const district = getDistrict(clearedDistrict);
+    this.mode = "over";
+    this.platform.gameplayStop();
+    this.audio.play("victory");
+    this.bestTime = Math.max(this.bestTime, this.elapsed);
+    this.save.bestTime = this.bestTime;
+    this.settleRun();
+    persistSave(this.save);
+    this.hud.setBossHealth("", 0, 0);
+    this.controlsTipRemaining = 0;
+    this.hud.updateControlsTip(0);
+
+    let details: ResultDetails;
+    if (!gateRequirementsMet(this.save, clearedDistrict)) {
+      details = {
+        title: "GATE LOCKED",
+        copy: `${district.bossName} is down, but the district exit needs stronger upgrades.`,
+        tip: `UPGRADE REQUIREMENTS: ${formatGateProgress(this.save, clearedDistrict)}`,
+      };
+    } else if (clearedDistrict < DISTRICTS.length - 1) {
+      const nextDistrict = getDistrict(clearedDistrict + 1);
+      this.save.unlockedDistrict = Math.max(this.save.unlockedDistrict, nextDistrict.id);
+      persistSave(this.save);
+      this.setDistrict(nextDistrict.id);
+      details = {
+        title: "DISTRICT CLEARED!",
+        copy: `${district.bossName} is toast. ${nextDistrict.name} is open.`,
+        tip: `NEXT UP: ${nextDistrict.name.toUpperCase()} · YOUR UPGRADES CARRY OVER`,
+      };
+    } else {
+      this.save.campaignComplete = true;
+      persistSave(this.save);
+      details = {
+        title: "THE CITY IS SAVED!",
+        copy: `${district.bossName} is finished. You cleared all four districts.`,
+        tip: "CAMPAIGN COMPLETE · REPLAY THE FINAL DISTRICT",
+      };
+    }
+    this.hud.render({ health: this.health, fat: this.fat, body: getBodyLabel(getBodyState(this.fat)), coins: this.runCoins, kills: this.kills, time: this.elapsed });
+    this.hud.showResult({ time: this.elapsed, kills: this.kills, coins: this.runCoins, bestTime: this.bestTime }, false, details);
+  }
+
+  private setDistrict(index: number) {
+    const district = getDistrict(index);
+    this.arena.dispose();
+    this.arena = new Arena(this.scene, district);
+    this.districtIndex = district.id;
+    this.scene.background = new THREE.Color(district.sky);
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setHex(district.sky);
+    this.hud.setDistrict(district);
   }
 
   private settleRun() {
@@ -506,7 +642,8 @@ export class Game {
     this.save.totalCoins -= cost;
     this.save.upgrades[id] = level + 1;
     persistSave(this.save);
-    this.hud.showShop(this.save);
+    const district = getDistrict(this.districtIndex);
+    this.hud.showShop(this.save, district.name, formatGateProgress(this.save, district.id));
   }
 
   private cycleQuality() {
@@ -519,5 +656,8 @@ export class Game {
 
   private renderHud() {
     this.hud.render({ health: this.health, fat: this.fat, body: getBodyLabel(getBodyState(this.fat)), coins: this.runCoins, kills: this.kills, time: this.elapsed });
+    const boss = this.enemies.find((enemy) => enemy.isBoss);
+    if (boss) this.hud.setBossHealth(getDistrict(this.districtIndex).bossName, boss.hp, boss.maxHp);
+    else this.hud.setBossHealth("", 0, 0);
   }
 }

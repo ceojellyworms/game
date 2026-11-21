@@ -27,10 +27,14 @@ export function getBodyLabel(state: BodyState) {
   return ({ fat_03: "FAT", fat_02: "HEAVY", normal: "NORMAL", fit_01: "FIT", fit_02: "ATHLETIC", muscle: "MUSCULAR" })[state];
 }
 
+type BodyRig = { group: THREE.Group; arms: THREE.Group[]; legs: THREE.Group[] };
+
 export class PlayerModel {
   readonly root = new THREE.Group();
-  private readonly variants = new Map<BodyState, THREE.Group>();
+  private readonly variants = new Map<BodyState, BodyRig>();
   private readonly muzzle: THREE.Group;
+  private walkPhase = 0;
+  private walkBlend = 0;
 
   constructor() {
     this.muzzle = new THREE.Group();
@@ -40,22 +44,38 @@ export class PlayerModel {
     this.variants.set("normal", this.buildVariant(0.43, 0.36, 0.2, 0.22));
     this.variants.set("fit_01", this.buildVariant(0.39, 0.31, 0.19, 0.2));
     this.variants.set("fit_02", this.buildVariant(0.4, 0.29, 0.21, 0.21));
-    this.variants.set("muscle", this.buildVariant(0.49, 0.35, 0.28, 0.26));
-    for (const group of this.variants.values()) this.root.add(group);
+    this.variants.set("muscle", this.buildVariant(0.52, 0.22, 0.3, 0.27, true));
+    for (const rig of this.variants.values()) this.root.add(rig.group);
     this.setFat(84);
   }
 
   setFat(fat: number) {
     const state = getBodyState(fat);
-    for (const [key, group] of this.variants) group.visible = key === state;
+    for (const [key, rig] of this.variants) rig.group.visible = key === state;
   }
 
   face(x: number, z: number) {
     if (x * x + z * z > 0.001) this.root.rotation.y = Math.atan2(x, z);
   }
 
-  private buildVariant(torsoRadius: number, bellyRadius: number, armRadius: number, legRadius: number) {
+  animateWalk(dt: number, moving: boolean) {
+    const target = moving ? 1 : 0;
+    this.walkBlend += (target - this.walkBlend) * Math.min(1, dt * 10);
+    if (this.walkBlend > 0.01) this.walkPhase += dt * 9.5;
+    const stride = Math.sin(this.walkPhase) * this.walkBlend;
+    for (const rig of this.variants.values()) {
+      rig.arms[0].rotation.x = stride * 0.3;
+      rig.arms[1].rotation.x = -stride * 0.3;
+      rig.legs[0].rotation.x = -stride * 0.48;
+      rig.legs[1].rotation.x = stride * 0.48;
+      rig.group.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.055 * this.walkBlend;
+    }
+  }
+
+  private buildVariant(torsoRadius: number, bellyRadius: number, armRadius: number, legRadius: number, muscular = false) {
     const group = new THREE.Group();
+    const arms: THREE.Group[] = [];
+    const legs: THREE.Group[] = [];
     const skin = flat(0xf2b28c);
     const shirt = flat(0xf5f3f3);
     const shorts = flat(0x2459a7);
@@ -63,23 +83,45 @@ export class PlayerModel {
     const hair = flat(0x754331);
     const dark = flat(0x302536);
     const iris = flat(0x593528);
-    const torso = addMesh(group, new THREE.CapsuleGeometry(torsoRadius, 0.52, 4, 10), shirt, [0, 1.38, 0]);
-    torso.scale.x = 1.04;
-    addMesh(group, new THREE.SphereGeometry(bellyRadius, 10, 8), shirt, [0, 1.2, 0.22], [1.05, 0.78, 0.72]);
+    if (muscular) {
+      // Broad shoulders and chest taper into a narrow waist; no round belly mesh.
+      addMesh(group, new THREE.IcosahedronGeometry(0.48, 1), shirt, [0, 1.58, 0], [1.34, 0.84, 0.76]);
+      addMesh(group, new THREE.IcosahedronGeometry(0.31, 1), shirt, [0, 1.13, 0.015], [0.88, 1.18, 0.78]);
+      for (const side of [-1, 1]) {
+        addMesh(group, new THREE.IcosahedronGeometry(0.3, 1), shirt, [side * 0.25, 1.59, 0.19], [0.98, 0.73, 0.72]);
+        addMesh(group, new THREE.IcosahedronGeometry(0.34, 1), shirt, [side * 0.48, 1.66, 0], [1, 0.88, 0.83]);
+      }
+      addMesh(group, new THREE.BoxGeometry(0.035, 0.32, 0.018), flat(0xd7dce5), [0, 1.46, 0.33]);
+    } else {
+      const torso = addMesh(group, new THREE.CapsuleGeometry(torsoRadius, 0.52, 3, 7), shirt, [0, 1.38, 0]);
+      torso.scale.x = 1.04;
+      addMesh(group, new THREE.IcosahedronGeometry(bellyRadius, 1), shirt, [0, 1.2, 0.22], [1.05, 0.78, 0.72]);
+    }
     addMesh(group, new THREE.BoxGeometry(0.68, 0.34, 0.42), shorts, [0, 0.84, 0]);
     for (const side of [-1, 1]) {
-      addMesh(group, new THREE.CapsuleGeometry(legRadius, 0.43, 3, 8), skin, [side * 0.2, 0.43, 0]);
-      addMesh(group, new THREE.BoxGeometry(0.34, 0.17, 0.48), shoe, [side * 0.22, 0.14, 0.12]);
-      const arm = addMesh(group, new THREE.CapsuleGeometry(armRadius, 0.43, 3, 8), skin, [side * (torsoRadius + 0.24), 1.32, 0.03]);
-      arm.rotation.z = side * -0.1;
-      addMesh(group, new THREE.SphereGeometry(armRadius * 0.82, 8, 6), skin, [side * (torsoRadius + 0.24), 1.01, 0.06]);
+      const leg = new THREE.Group();
+      leg.position.set(side * 0.2, 0.65, 0);
+      addMesh(leg, new THREE.CapsuleGeometry(legRadius, 0.43, 3, 6), skin, [0, -0.2, 0]);
+      addMesh(leg, new THREE.BoxGeometry(0.36, 0.07, 0.5), flat(0xc9c8d0), [0, -0.56, 0.12]);
+      addMesh(leg, new THREE.BoxGeometry(0.34, 0.17, 0.48), shoe, [0, -0.49, 0.12]);
+      group.add(leg);
+      legs.push(leg);
+
+      const arm = new THREE.Group();
+      arm.position.set(side * (torsoRadius + 0.24), 1.52, 0.03);
+      const sleeve = addMesh(arm, new THREE.CapsuleGeometry(armRadius, 0.16, 3, 6), shirt, [0, -0.09, 0]);
+      sleeve.rotation.z = side * -0.1;
+      addMesh(arm, new THREE.CapsuleGeometry(armRadius * 0.72, 0.23, 3, 6), skin, [0, -0.45, 0.025]);
+      addMesh(arm, new THREE.IcosahedronGeometry(armRadius * 0.66, 1), skin, [side * 0.015, -0.69, 0.07], [1, 0.9, 0.85]);
+      group.add(arm);
+      arms.push(arm);
     }
-    addMesh(group, new THREE.SphereGeometry(0.31, 10, 8), skin, [0, 2.08, 0.04]);
-    addMesh(group, new THREE.SphereGeometry(0.3, 10, 8), hair, [0, 2.28, -0.015], [1.02, 0.58, 0.98]);
+    addMesh(group, new THREE.IcosahedronGeometry(0.31, 1), skin, [0, 2.08, 0.04]);
+    addMesh(group, new THREE.IcosahedronGeometry(0.3, 1), hair, [0, 2.28, -0.015], [1.02, 0.58, 0.98]);
     addMesh(group, new THREE.BoxGeometry(0.34, 0.09, 0.23), hair, [0, 2.25, 0.22]);
     for (const side of [-1, 1]) {
-      addMesh(group, new THREE.SphereGeometry(0.055, 8, 6), shoe, [side * 0.115, 2.08, 0.303]);
-      addMesh(group, new THREE.SphereGeometry(0.026, 7, 6), iris, [side * 0.115, 2.08, 0.35]);
+      addMesh(group, new THREE.IcosahedronGeometry(0.055, 1), shoe, [side * 0.115, 2.08, 0.303]);
+      addMesh(group, new THREE.IcosahedronGeometry(0.026, 0), iris, [side * 0.115, 2.08, 0.35]);
       const brow = addMesh(group, new THREE.BoxGeometry(0.12, 0.035, 0.045), dark, [side * 0.115, 2.17, 0.32]);
       brow.rotation.z = side * -0.15;
     }
@@ -89,7 +131,7 @@ export class PlayerModel {
     addMesh(gun, new THREE.BoxGeometry(0.09, 0.22, 0.11), dark, [0, -0.13, -0.01]);
     gun.position.set(torsoRadius + 0.2, 1.28, 0.27);
     group.add(gun);
-    return group;
+    return { group, arms, legs };
   }
 }
 
@@ -105,8 +147,8 @@ export class DonutModel {
     addMesh(this.root, new THREE.TorusGeometry(0.63, 0.24, 8, 14), dough, [0, 0.82, 0]);
     addMesh(this.root, new THREE.TorusGeometry(0.62, 0.19, 8, 14), icing, [0, 0.84, 0.07]);
     for (const side of [-1, 1]) {
-      addMesh(this.root, new THREE.SphereGeometry(0.12, 8, 6), white, [side * 0.2, 0.94, 0.245]);
-      addMesh(this.root, new THREE.SphereGeometry(0.055, 7, 6), black, [side * 0.2, 0.94, 0.34]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.12, 1), white, [side * 0.2, 0.94, 0.245], [1, 1, 0.76]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.055, 0), black, [side * 0.2, 0.94, 0.34], [1, 1, 0.7]);
       const brow = addMesh(this.root, new THREE.BoxGeometry(0.2, 0.055, 0.06), black, [side * 0.2, 1.13, 0.25]);
       brow.rotation.z = side * -0.24;
       const arm = addMesh(this.root, new THREE.CapsuleGeometry(0.08, 0.25, 3, 6), limb, [side * 0.76, 0.74, 0]);
@@ -123,7 +165,7 @@ export class DonutModel {
   }
 }
 
-export type EnemyKind = "donut" | "hotdog" | "burger";
+export type EnemyKind = "donut" | "hotdog" | "burger" | "boss";
 export type EnemyModel = { root: THREE.Group };
 
 export class HotDogModel {
@@ -142,8 +184,8 @@ export class HotDogModel {
     const white = flat(0xffffff);
     const black = flat(0x251f30);
     for (const side of [-1, 1]) {
-      addMesh(this.root, new THREE.SphereGeometry(0.105, 8, 6), white, [side * 0.17, 0.94, 0.29]);
-      addMesh(this.root, new THREE.SphereGeometry(0.046, 7, 6), black, [side * 0.17, 0.94, 0.36]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.105, 1), white, [side * 0.17, 0.94, 0.29], [1, 1, 0.75]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.046, 0), black, [side * 0.17, 0.94, 0.36], [1, 1, 0.7]);
       const brow = addMesh(this.root, new THREE.BoxGeometry(0.18, 0.045, 0.045), black, [side * 0.17, 1.1, 0.29]);
       brow.rotation.z = side * -0.22;
       const arm = addMesh(this.root, new THREE.CapsuleGeometry(0.07, 0.22, 3, 6), flat(0xa75132), [side * 0.45, 0.54, 0]);
@@ -167,17 +209,17 @@ export class BurgerModel {
     const cheeseSlice = addMesh(this.root, new THREE.BoxGeometry(1.15, 0.12, 1.05), cheese, [0, 0.91, 0.01]);
     cheeseSlice.rotation.y = 0.22;
     addMesh(this.root, new THREE.CylinderGeometry(0.62, 0.58, 0.12, 10), lettuce, [0, 1.02, 0]);
-    addMesh(this.root, new THREE.SphereGeometry(0.58, 10, 7), bun, [0, 1.24, 0], [1.15, 0.58, 0.95]);
+    addMesh(this.root, new THREE.IcosahedronGeometry(0.58, 1), bun, [0, 1.24, 0], [1.15, 0.58, 0.95]);
     const sesame = flat(0xffe9ae);
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
-      addMesh(this.root, new THREE.SphereGeometry(0.035, 6, 5), sesame, [Math.cos(angle) * 0.4, 1.49 - Math.abs(Math.cos(angle)) * 0.08, Math.sin(angle) * 0.34]);
+      addMesh(this.root, new THREE.OctahedronGeometry(0.04, 0), sesame, [Math.cos(angle) * 0.4, 1.49 - Math.abs(Math.cos(angle)) * 0.08, Math.sin(angle) * 0.34]);
     }
     const white = flat(0xffffff);
     const black = flat(0x251f30);
     for (const side of [-1, 1]) {
-      addMesh(this.root, new THREE.SphereGeometry(0.12, 8, 6), white, [side * 0.19, 1.12, 0.46]);
-      addMesh(this.root, new THREE.SphereGeometry(0.052, 7, 6), black, [side * 0.19, 1.12, 0.55]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.12, 1), white, [side * 0.19, 1.12, 0.46], [1, 1, 0.75]);
+      addMesh(this.root, new THREE.IcosahedronGeometry(0.052, 0), black, [side * 0.19, 1.12, 0.55], [1, 1, 0.7]);
       const brow = addMesh(this.root, new THREE.BoxGeometry(0.21, 0.05, 0.05), black, [side * 0.19, 1.3, 0.46]);
       brow.rotation.z = side * -0.2;
       const arm = addMesh(this.root, new THREE.CapsuleGeometry(0.08, 0.24, 3, 6), patty, [side * 0.66, 0.75, 0]);
@@ -188,7 +230,33 @@ export class BurgerModel {
   }
 }
 
-export function createEnemyModel(kind: EnemyKind): EnemyModel {
+export class BossModel {
+  readonly root = new THREE.Group();
+
+  constructor(style: "donut" | "hotdog" | "burger") {
+    const body = style === "donut" ? new DonutModel() : style === "hotdog" ? new HotDogModel() : new BurgerModel();
+    body.root.scale.setScalar(1.68);
+    body.root.position.y = 0.12;
+    this.root.add(body.root);
+
+    const gold = flat(0xffd145);
+    const trim = flat(0xffefb2);
+    const crown = addMesh(this.root, new THREE.CylinderGeometry(0.4, 0.62, 0.34, 7), gold, [0, 2.28, 0]);
+    crown.rotation.y = Math.PI / 7;
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2;
+      const point = addMesh(this.root, new THREE.ConeGeometry(0.14, 0.42, 4), trim, [Math.cos(angle) * 0.45, 2.62, Math.sin(angle) * 0.45]);
+      point.rotation.z = Math.cos(angle) * -0.25;
+      point.rotation.x = Math.sin(angle) * 0.25;
+    }
+    addMesh(this.root, new THREE.OctahedronGeometry(0.18, 0), flat(0xff5976), [0, 2.36, 0.57]);
+    const cape = addMesh(this.root, new THREE.BoxGeometry(1.45, 1.32, 0.15), flat(0xb93256), [0, 1.06, -0.82]);
+    cape.rotation.x = -0.08;
+  }
+}
+
+export function createEnemyModel(kind: EnemyKind, bossStyle: "donut" | "hotdog" | "burger" = "burger"): EnemyModel {
+  if (kind === "boss") return new BossModel(bossStyle);
   if (kind === "hotdog") return new HotDogModel();
   if (kind === "burger") return new BurgerModel();
   return new DonutModel();
